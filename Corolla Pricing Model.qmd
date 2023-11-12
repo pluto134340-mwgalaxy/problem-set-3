@@ -1,0 +1,144 @@
+---
+title: "Corolla Pricing Model"
+format: html
+editor: visual
+---
+
+------------------------------------------------------------------------
+
+```{r}
+#| message: false
+library(tidyverse)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(ggthemes)
+library(gamlr)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(iml)
+```
+
+## Read in and Prepare Data
+
+```{r}
+cars <- read_csv("ToyotaCorolla.csv")
+str(data)
+sum(is.na(data()))
+```
+
+```{r}
+cars = cars %>%
+  select(-Id, -Model, -Mfg_Month, -Cylinders, -Quarterly_Tax)
+```
+
+Important Features
+
+-   Mileage (Kilometers): use, wear-and-tear, how much life left.
+
+-   Age (months/years): age-related wear like rust.
+
+```{r}
+cars %>%
+    select(Mfg_Year) %>%
+    table()
+
+```
+
+```{r}
+cars = cars %>% 
+  mutate_at(vars(Mfg_Year, 
+                 Fuel_Type,
+                 Color), .funs = factor)
+```
+
+## Analyzing the Price Variable
+
+```{r}
+cars %>%
+  ggplot(aes(x=Price)) + 
+  geom_histogram(aes(y=after_stat(density)),
+                 fill = "aquamarine",
+                 color = "aquamarine3",
+                 alpha = 0.7) +
+  geom_density(color = "black") +
+  labs(title = "Distribution of Car Prices",
+       x = "Price") +
+  theme_clean()
+```
+
+```{r}
+hist(cars$Price)
+summary(cars$Price)
+```
+
+## Relation between Price & Other Features
+
+```{r}
+plot(cars$Age_08_04, cars$Price, main = "Scatterplot of Price vs. Age_08_04", xlab = "Mfg_Year", ylab = "Price")
+cor(cars$Price, cars$Age_08_04)
+```
+
+```{r}
+plot(cars$KM, cars$Price, main = "Scatterplot of Price vs. Mileage", xlab = "Mileage", ylab = "Price")
+cor(cars$Price, cars$KM)
+```
+
+Earlier I noted that age and mileage are important features to this data set so I graphed the relationship between age vs price & mileage vs price. The scatterplots shows that age nor mileage really have a strong linear impact on car prices.
+
+## Strongly Related Variables
+
+```{r}
+library(reshape2)
+cars$Mfg_Year <- as.numeric(as.character(cars$Mfg_Year))
+numeric_data <- cars[, c("Price", "Mfg_Year", "KM", "HP", "Age_08_04")]
+cor_matrix <- cor(numeric_data)
+melted_cor <- melt(cor_matrix)
+
+cars %>%
+  ggplot(aes(data = melted_cor, x = "Var1", y = "Var2", fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "blue", high = "red") +
+  labs(x = "Variable", y = "Variable") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+```
+
+## Partitioning Data
+
+```{r}
+set.seed(123)
+train_index <- createDataPartition(cars$Price, p = 0.7, list = FALSE)
+train_data <- cars[train_index, ]
+test_data <- cars[-train_index, ]
+```
+
+## Regression Tree Model
+
+```{r}
+tree_model <- train(Price ~ ., data = train_data, method = "rpart", trControl = trainControl(method = "cv"))
+rpart.plot(tree_model$finalModel)
+```
+
+## Removing Unwanted Features & Comparing Data
+
+```{r}
+train_data <- train_data[, c("Price", "Age_08_04", "KM", "HP")]
+tree_model <- rpart(train_data$Price - train_data$Age_08_04 + train_data$KM + train_data$HP, data = train_data)
+```
+
+```{r}
+library(caret)
+best <- tree_model$bestTune$cp[which.min((tree_model$bestTune$cp)[,"xerror"]), "CP"]
+pruned_tree <- prune(tree_model,cp=best) 
+predictions <- predict(pruned_tree, newdata = test_data)
+rmse <- sqrt(mean((predictions - test_data$Price)^2))
+rsme
+```
+
+```{r}
+colnames(cars)
+head(cars)
+```
